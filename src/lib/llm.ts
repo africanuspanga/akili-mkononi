@@ -30,12 +30,48 @@ export interface LLMResponse {
   text: string;
   tokens_used: number;
   cost_usd: number;
+  cached: boolean;
+}
+
+// In-memory response cache keyed by `${lang}::${normalized_question}`.
+// Won't survive Vercel cold starts, but warm-instance repeats of common
+// questions (e.g. "what is the capital of tanzania") are served for free.
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 1000;
+const cache = new Map<string, { text: string; expires_at: number }>();
+
+function cacheKey(question: string, language: "sw" | "en"): string {
+  return `${language}::${question.trim().toLowerCase().replace(/\s+/g, " ")}`;
+}
+
+function cacheGet(key: string): string | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expires_at) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.text;
+}
+
+function cacheSet(key: string, text: string): void {
+  if (cache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest) cache.delete(oldest);
+  }
+  cache.set(key, { text, expires_at: Date.now() + CACHE_TTL_MS });
 }
 
 export async function generateResponse(
   question: string,
   language: "sw" | "en"
 ): Promise<LLMResponse> {
+  const key = cacheKey(question, language);
+  const cachedText = cacheGet(key);
+  if (cachedText) {
+    return { text: cachedText, tokens_used: 0, cost_usd: 0, cached: true };
+  }
+
   const systemPrompt =
     language === "sw" ? SYSTEM_PROMPT_SW : SYSTEM_PROMPT_EN;
 
@@ -57,11 +93,14 @@ export async function generateResponse(
     const inputCost = ((usage?.prompt_tokens || 0) / 1_000_000) * 0.15;
     const outputCost = ((usage?.completion_tokens || 0) / 1_000_000) * 0.6;
 
+    if (text) cacheSet(key, text);
+
     return {
       text,
       tokens_used:
         (usage?.prompt_tokens || 0) + (usage?.completion_tokens || 0),
       cost_usd: inputCost + outputCost,
+      cached: false,
     };
   } catch (error) {
     console.error("[LLM] Error:", error);
@@ -72,6 +111,6 @@ export async function generateResponse(
         ? "Samahani, kuna tatizo la kiufundi. Tafadhali jaribu tena baadaye."
         : "Sorry, there was a technical issue. Please try again later.";
 
-    return { text: fallback, tokens_used: 0, cost_usd: 0 };
+    return { text: fallback, tokens_used: 0, cost_usd: 0, cached: false };
   }
 }

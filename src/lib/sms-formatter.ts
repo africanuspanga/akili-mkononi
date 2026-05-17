@@ -1,30 +1,33 @@
 /**
- * Format LLM response for SMS delivery
- * Max 3 SMS segments = 459 characters (English) or 189 characters (Unicode)
- * We target 450 chars max to leave buffer
+ * Format LLM response for SMS delivery.
+ * 3-segment budgets: 459 chars (GSM-7) or 189 chars (Unicode UCS-2).
+ * We target a slight buffer below each so concatenation overhead is safe.
  */
 
-const MAX_SMS_LENGTH = 450; // 3 segments with buffer
+const MAX_GSM_LENGTH = 450;
+const MAX_UNICODE_LENGTH = 180;
+
+// "•" (U+2022) is NOT in the GSM-7 alphabet — substituting it for "- " would
+// force the whole reply into Unicode encoding (153 → 63 chars/segment), more
+// than doubling the SMS cost. Use plain "* " instead, which is GSM-safe.
+const BULLET = "* ";
 
 export function formatForSMS(text: string): string {
-  // Remove markdown formatting that LLMs love to add
-  let cleaned = text
+  const cleaned = text
     .replace(/\*\*/g, "") // bold
-    .replace(/\*/g, "") // italic
+    .replace(/(?<!\*)\*(?!\*)/g, "") // single italic asterisks (preserves our bullet sentinel below)
     .replace(/#{1,6}\s/g, "") // headers
     .replace(/`{1,3}/g, "") // code blocks
     .replace(/\n{3,}/g, "\n\n") // excessive newlines
-    .replace(/- /g, "• ") // convert markdown lists to bullet
+    .replace(/^- /gm, BULLET) // markdown bullets → GSM-safe bullet
     .trim();
 
-  // If already within limits, return as-is
-  if (cleaned.length <= MAX_SMS_LENGTH) {
-    return cleaned;
-  }
+  const maxLength = /[^\x00-\x7F]/.test(cleaned)
+    ? MAX_UNICODE_LENGTH
+    : MAX_GSM_LENGTH;
 
-  // Truncate at sentence boundary
-  const truncated = truncateAtSentence(cleaned, MAX_SMS_LENGTH);
-  return truncated;
+  if (cleaned.length <= maxLength) return cleaned;
+  return truncateAtSentence(cleaned, maxLength);
 }
 
 /**
