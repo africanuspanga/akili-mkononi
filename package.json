@@ -1,0 +1,24 @@
+{
+  "name": "akili-mkononi",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test:webhook": "curl -s 'http://localhost:3000/api/webhook/sms?shortcode=15500&mobileno=255712345678&keyword=AKILI&message=What+is+the+capital+of+Tanzania' | jq"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "openai": "^4.60.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.5.0"
+  }
+}
